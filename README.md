@@ -5,9 +5,9 @@ Port experimental, enfocado exclusivamente en el **POCO X5 5G global**
 ejecutar sobre XNU el espacio de usuario de iOS 16.7.16 (20H392) del iPhone X
 (`iPhone10,3` / `D22AP`). El proyecto no distribuye iOS ni el firmware de Apple.
 
-> **Estado importante:** aún no hay evidencia de que XNU haya arrancado en este
-> teléfono. El primer artefacto se diseña para una prueba temporal de entrada
-> al kernel: no contiene un root filesystem y no puede iniciar iOS. No uses
+> **Estado importante:** hay evidencia de que el candidato llegó a ejecutar XNU
+> hasta la inicialización de `kprintf`, pero no de un arranque completo. El
+> artefacto no contiene un root filesystem y no puede iniciar iOS. No uses
 > instrucciones de instalación de otro dispositivo ni flashees imágenes de
 > este proyecto.
 
@@ -30,8 +30,14 @@ ejecutar sobre XNU el espacio de usuario de iOS 16.7.16 (20H392) del iPhone X
   SWEET/Sunstone que usan el kernel, los parches y el shim se conservan
   deliberadamente: no son solo etiquetas y reemplazarlos sin portar cada
   consumidor rompería la compatibilidad.
-- El dispositivo está conectado por ADB, pero todavía no se ha compilado XNU,
-  arrancado ni escrito/flasheado nada en el teléfono.
+- XNU se compiló y se empaquetó un candidato de primer arranque. En una prueba
+  reportada, la consola mostró `SWEET EARLY 20: kprintf startup complete`.
+  Ese marcador confirma que se alcanzó la inicialización de `kprintf`, pero no
+  demuestra por sí solo si el kernel siguió avanzando: la instrumentación
+  anterior apagaba la consola temprana y no mostraba hitos posteriores.
+- Se reportó una escritura manual del candidato v3 a `boot_b`; el dispositivo
+  quedó en el marcador anterior. Esto no es un procedimiento de instalación:
+  no se ha verificado un arranque completo ni una ruta de restauración.
 
 ## Hardware Moonstone confirmado
 
@@ -86,9 +92,10 @@ tratar ese `boot.img` como la imagen activa del teléfono.
 5. Validar UFS/root, GPU A619, energía/reguladores, batería, módem y WLAN con
    el FDT activo y firmware de la misma versión.
 6. Resolver la diferencia de versión entre `boot.img` y las imágenes vendor/ODM.
-7. El próximo paso es una prueba temporal `fastboot boot` del kernel sin root.
-   Si XNU alcanza la fase de montar el root, es esperable que falle porque
-   deliberadamente no se incluye un sistema raíz.
+7. El siguiente candidato añade hitos de consola 21–30 después de `kprintf`
+   y mantiene activa la consola temprana para distinguir entre un kernel
+   detenido y una pantalla simplemente estática. La prueba sigue sin incluir
+   un sistema raíz.
 
 ## Arranque previsto (aún no validado)
 
@@ -122,19 +129,13 @@ Los argumentos seguros predeterminados son `debug=0xc cpus=1 keepsyms=1
 `rootrw=1` ni inicialización de GPU. Con el artefacto descargado y el teléfono
 conectado por USB:
 
-```sh
-adb reboot bootloader
-fastboot devices
-fastboot boot moonstone-first-boot.img
-```
-
-`fastboot boot` intenta ejecutar la imagen en RAM; no equivale a `fastboot
-flash`. No ejecutes comandos `flash` ni escribas un root filesystem en
-`userdata`. Empieza con v3, coherente con el `vendor_boot` v3 observado. El v4
-se entrega como alternativa si el bootloader rechaza v3; aún no se ha probado
-cuál acepta este firmware. El ensayo solo comprueba la entrada a XNU y el
-arranque temprano: sin root iOS no llegará a `launchd` ni a la interfaz. Si el
-kernel se detiene, reinicia manualmente el teléfono para volver a Android.
+En el firmware probado, `fastboot boot` respondió `unknown command`; por tanto,
+no es un método disponible confirmado para este dispositivo. `fastboot flash`
+es una escritura persistente, no una prueba temporal. No uses instrucciones
+de flash de este README ni escribas un root filesystem en `userdata`. Las
+imágenes v3/v4 solo describen dos formatos de cabecera; cambiar de formato no
+resuelve un bloqueo dentro del kernel. Sin root iOS no llegará a `launchd` ni
+a la interfaz.
 
 Comprobaciones offline de herramientas:
 
@@ -157,6 +158,7 @@ demuestra funcionamiento en Moonstone.
 | `tools/mkpayload.py` | Empaqueta kernel, ADT y argumentos |
 | `tools/mkboot.sh` | Construye imágenes temporales de primer arranque Moonstone |
 | `tools/kbuild.sh` | Orquesta la obtención del kernel CI y su empaquetado |
+| `xnu/patches/0012a-sweet-boot-progress-console.patch` | Conserva la consola temprana y añade hitos después de `kprintf` |
 | `tools/mkiosroot.sh` | Construcción del volumen raíz desde imágenes IPSW |
 | `tests/` | Pruebas offline y comprobaciones del código/herramientas |
 | `.github/workflows/` | Workflows de kernel, primer arranque Moonstone y herramientas |

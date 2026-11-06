@@ -159,6 +159,18 @@ class ToolTests(unittest.TestCase):
             with self.subTest(options=options), self.assertRaises(ValueError):
                 mkadt.build(moonstone=True, **options)
 
+    def test_post_kprintf_diagnostics_keep_early_console_visible(self):
+        patch = (ROOT / 'xnu/patches/0012a-sweet-boot-progress-console.patch').read_text()
+        self.assertIn('stage > 30', patch)
+        self.assertIn('stage % 22u', patch)
+        for stage in range(21, 31):
+            self.assertIn(f'sweet_early_mark({stage},', patch)
+        self.assertIn('-\t\tsweet_early_disable();', patch)
+        result = subprocess.run(['git', 'apply', '--numstat',
+                                 str(ROOT / 'xnu/patches/0012a-sweet-boot-progress-console.patch')],
+                                capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_mkadt_cli_defaults_to_moonstone(self):
         output = self.dir / 'moonstone.adt'
         self.assertIn(b'xiaomi,moonstone\0',
