@@ -136,7 +136,7 @@ class ToolTests(unittest.TestCase):
         self.assertIn('payload_args+=(--ramdisk "$RAMDISK")', script)
         self.assertIn('clang -target arm64-apple-ios16.0 -c tools/sweet-init.S', workflow)
         self.assertIn('python3 tools/mkinit.py out/sweet-init.o out/sweet-init.macho', workflow)
-        self.assertIn('RAMDISK=xnu/out/sweet-init.macho CMDLINE="$CMDLINE rd=md0"', workflow)
+        self.assertIn('RAMDISK=out/sweet-init.macho CMDLINE="$CMDLINE rd=md0"', workflow)
         self.assertIn('moonstone-userspace-smoke.img', workflow)
         self.assertNotIn('ufsrw=1', workflow)
         self.assertNotIn('rootrw=1', workflow)
