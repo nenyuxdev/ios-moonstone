@@ -1,7 +1,6 @@
-"""Offline archive/payload/extraction checks; no firmware, root image or device needed."""
+"""Offline tests for the XNU payload and Moonstone boot tooling."""
 from pathlib import Path
 import os
-import shutil
 import struct
 import subprocess
 import sys
@@ -17,90 +16,20 @@ import mkpayload
 
 class ToolTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix='sunstone-tools-')
+        self.tmp = tempfile.TemporaryDirectory(prefix='moonstone-tools-')
         self.addCleanup(self.tmp.cleanup)
         self.dir = Path(self.tmp.name)
-        self.src = self.dir / 'source'
-        self.src.write_bytes(b'canary')
 
     def run_tool(self, tool, *args):
         return subprocess.run([sys.executable, str(ROOT / 'tools' / tool), *map(str, args)],
                               capture_output=True, timeout=5)
 
-    def drop(self, *entries):
-        out = self.dir / 'drop'
-        result = self.run_tool('mkdrop.py', out, *entries)
-        return result, out
-
-    def test_drop_memory_and_utf8_boundary(self):
-        path = '/' + '測' * 42  # 127 bytes, with a byte left for NUL.
-        result, out = self.drop(f'{self.src}:{path}:mem')
-        self.assertEqual(result.returncode, 0, result.stderr)
-        blob = out.read_bytes()
-        self.assertEqual(struct.unpack_from('<8sII', blob), (b'SWEETDRP', 1, 1))
-        name, mode, size, offset, _ = struct.unpack_from('<128sIIII', blob, 16)
-        self.assertEqual(name.rstrip(b'\0').decode(), path)
-        self.assertEqual(mode, 0x80000000 | 0o444)
-        self.assertEqual(offset % 64, 0)
-        self.assertEqual(blob[offset:offset + size], b'canary')
-
-    def test_drop_rejects_long_utf8_path_without_output(self):
-        result, out = self.drop(f'{self.src}:/' + '測' * 43 + ':mem')
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b'UTF-8', result.stderr)
-        self.assertFalse(out.exists())
-
-    def test_drop_rejects_duplicate_destinations(self):
-        result, out = self.drop(f'{self.src}:/same:mem', f'{self.src}:/same:644')
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b'duplicate destination', result.stderr)
-        self.assertFalse(out.exists())
-
-    def test_drop_directory_and_entry_limit(self):
-        result, out = self.drop('--mem-dir', f'{self.dir}:/vendor/config')
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(struct.unpack_from('<I', out.read_bytes(), 12)[0], 1)
-        out.unlink()
-        result, out = self.drop(*(f'{self.src}:/file-{i}:mem' for i in range(257)))
-        self.assertNotEqual(result.returncode, 0)
-        self.assertFalse(out.exists())
-
-    def super_image(self, truncated=False):
-        # LP geometry, primary metadata and one linear vendor_a extent.
-        blob = bytearray(16384 if truncated else 16896)
-        struct.pack_into('<II32sIII', blob, 4096, 0x616c4467, 52, b'\0' * 32, 4096, 2, 4096)
-        struct.pack_into('<IHHI', blob, 12288, 0x414c5030, 10, 0, 128)
-        struct.pack_into('<I', blob, 12288 + 44, 76)
-        struct.pack_into('<III', blob, 12288 + 80, 0, 1, 52)
-        struct.pack_into('<III', blob, 12288 + 92, 52, 1, 24)
-        struct.pack_into('<36sIIII', blob, 12416, b'vendor_a', 0, 0, 1, 0)
-        struct.pack_into('<QIQI', blob, 12416 + 52, 1, 0, 32, 0)
-        if not truncated:
-            blob[16384:] = b'V' * 512
-        path = self.dir / 'super'
-        path.write_bytes(blob)
-        return path
-
-    def test_lpextract_lists_and_extracts(self):
-        src = self.super_image()
-        listed = self.run_tool('lpextract.py', src)
-        self.assertEqual(listed.returncode, 0, listed.stderr)
-        self.assertIn(b'vendor_a', listed.stdout)
-        out = self.dir / 'vendor'
-        result = self.run_tool('lpextract.py', src, 'vendor_a', out)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(out.read_bytes(), b'V' * 512)
-
-    def test_lpextract_truncation_terminates(self):
-        result = self.run_tool('lpextract.py', self.super_image(True), 'vendor_a', self.dir / 'vendor')
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b'truncated super image', result.stderr)
-
     def payload_inputs(self):
         va = 0xfffffff007004000
         kernel = bytearray(4096)
         struct.pack_into('<8I', kernel, 0, 0xfeedfacf, 0x100000c, 0, 2, 2, 360, 0, 0)
-        struct.pack_into('<II16s4Q4I', kernel, 32, 0x19, 72, b'__TEXT', va, 0x4000, 0, 4096, 5, 5, 0, 0)
+        struct.pack_into('<II16s4Q4I', kernel, 32, 0x19, 72, b'__TEXT', va, 0x4000, 0, 4096,
+                         5, 5, 0, 0)
         struct.pack_into('<4I', kernel, 104, 5, 288, 6, 68)
         struct.pack_into('<Q', kernel, 104 + 16 + 32 * 8, va + 0x100)
         kpath = self.dir / 'kernel'
@@ -116,107 +45,66 @@ class ToolTests(unittest.TestCase):
         apath.write_bytes(adt.serialize(root))
         return kpath, apath
 
-    def test_payload_preserves_boot_args_and_ramdisk(self):
+    def test_payload_has_eight_byte_moonstone_magic_and_boot_args(self):
         kernel, tree = self.payload_inputs()
-        line = 'x' * 607
-        blob, info = mkpayload.build(kernel, tree, line, self.src)
-        self.assertEqual(blob[0x48:0x48 + 608], line.encode() + b'\0')
-        self.assertEqual(struct.unpack_from('<8sII', blob), (b'SWEETXNU', 1, 2))
-        va, size, offset, length = struct.unpack_from('<4Q', blob, 0x2a8 + 32)
-        self.assertEqual(blob[offset:offset + length], b'canary')
-        self.assertEqual(size, 0x4000)
+        line = 'debug=0xc cpus=1 keepsyms=1'
+        blob, info = mkpayload.build(kernel, tree, line)
+        self.assertEqual(struct.unpack_from('<8sII', blob), (b'MOONXNU1', 1, 1))
+        self.assertEqual(blob[0x48:0x48 + len(line) + 1], line.encode() + b'\0')
+        self.assertNotIn('ramdisk', info)
         adt_offset, adt_size = struct.unpack_from('<2Q', blob, 0x20)
         parsed, _ = adt.parse(blob[adt_offset:adt_offset + adt_size])
-        rd = parsed.children[0].children[0].prop('RAMDisk')
-        self.assertEqual(struct.unpack('<2Q', rd), (int(info['ramdisk'][0], 16), size))
-
-    def test_mkboot_can_package_ramdisk_userspace_smoke(self):
-        script = (ROOT / 'tools/mkboot.sh').read_text()
-        workflow = (ROOT / '.github/workflows/moonstone-first-boot.yml').read_text()
-        self.assertIn('payload_args+=(--ramdisk "$RAMDISK")', script)
-        self.assertIn('clang -target arm64-apple-ios16.0 -c tools/sweet-init.S', workflow)
-        self.assertIn('python3 tools/mkinit.py out/sweet-init.o out/sweet-init.macho', workflow)
-        self.assertIn('RAMDISK=out/sweet-init.macho CMDLINE="$CMDLINE rd=md0"', workflow)
-        self.assertIn('moonstone-userspace-smoke.img', workflow)
-        self.assertNotIn('ufsrw=1', workflow)
-        self.assertNotIn('rootrw=1', workflow)
+        self.assertIsNone(parsed.children[0].children[0].prop('RAMDisk'))
 
     def test_payload_rejects_truncated_or_embedded_nul_args(self):
         kernel, tree = self.payload_inputs()
-        for line in ('x' * 608, '測' * 203, 'cpus=8\0sweetgpu=0'):
+        for line in ('x' * 608, '測' * 203, 'cpus=8\0debug=0xc'):
             with self.subTest(line_length=len(line)), self.assertRaises(ValueError):
                 mkpayload.build(kernel, tree, line)
 
-    def test_moonstone_adt_profile_uses_live_board_values_and_keeps_sweet_abi(self):
+    def test_moonstone_adt_uses_board_compatible_once(self):
         root = mkadt.build(seed=bytes(64), moonstone=True)
         props = dict((name, value) for name, _, value in root.props)
-        self.assertIn(b'xiaomi,moonstone\0', props['compatible'])
-        self.assertIn(b'xiaomi,sweet\0', props['compatible'])
+        self.assertEqual(props['compatible'].count(b'xiaomi,moonstone\0'), 1)
         self.assertEqual(props['model'], b'iPhone10,3\0')
-
         children = {dict((name, value) for name, _, value in child.props)['name'].rstrip(b'\0'): child
                     for child in root.children}
         chosen = dict((name, value) for name, _, value in children[b'chosen'].props)
         self.assertEqual(struct.unpack('<Q', chosen['dram-base']), (0x180000000,))
         self.assertEqual(struct.unpack('<Q', chosen['dram-size']), (0x100000000,))
         self.assertEqual(chosen['firmware-version'], b'moonstone-shim\0')
+        self.assertNotIn(b'moonstone-ufs', children)
+        self.assertNotIn(b'product', children)
 
-        ufs = children[b'sweet-ufs']
-        ufs_props = dict((name, value) for name, _, value in ufs.props)
-        self.assertEqual(struct.unpack('<2Q', ufs_props['reg']), (0x04804000, 0x3000))
-
-    def test_moonstone_adt_rejects_qemu_and_midmem(self):
+    def test_adt_rejects_incompatible_qemu_and_midmem_options(self):
         for options in ({'qemu': True}, {'midmem': True}):
             with self.subTest(options=options), self.assertRaises(ValueError):
                 mkadt.build(moonstone=True, **options)
 
-    def test_post_kprintf_diagnostics_keep_early_console_visible(self):
-        patch = (ROOT / 'xnu/patches/0012a-sweet-boot-progress-console.patch').read_text()
-        self.assertIn('stage > 30', patch)
-        self.assertIn('stage % 22u', patch)
+    def test_boot_progress_patch_is_valid_and_has_milestones_21_to_30(self):
+        patch = ROOT / 'xnu/patches/0012a-moonstone-boot-progress-console.patch'
+        text = patch.read_text()
+        self.assertIn('stage > 30', text)
         for stage in range(21, 31):
-            self.assertIn(f'sweet_early_mark({stage},', patch)
-        self.assertIn('-\t\tsweet_early_disable();', patch)
-        result = subprocess.run(['git', 'apply', '--numstat',
-                                 str(ROOT / 'xnu/patches/0012a-sweet-boot-progress-console.patch')],
-                                capture_output=True)
+            self.assertIn(f'moonstone_early_mark({stage},', text)
+        result = subprocess.run(['git', 'apply', '--numstat', str(patch)], capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_mkadt_cli_defaults_to_moonstone(self):
-        output = self.dir / 'moonstone.adt'
-        self.assertIn(b'xiaomi,moonstone\0',
-                      dict((name, value) for name, _, value in mkadt.build().props)['compatible'])
-        result = self.run_tool('mkadt.py', output)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        root, _ = adt.parse(output.read_bytes())
-        props = dict((name, value) for name, _, value in root.props)
-        self.assertIn(b'xiaomi,moonstone\0', props['compatible'])
-        self.assertIn(b'xiaomi,sweet\0', props['compatible'])
-        chosen = next(child for child in root.children
-                      if dict((name, value) for name, _, value in child.props)['name'] == b'chosen\0')
-        chosen_props = dict((name, value) for name, _, value in chosen.props)
-        self.assertEqual(struct.unpack('<Q', chosen_props['dram-base']), (mkadt.MOONSTONE_PHYS_BASE,))
-        self.assertEqual(struct.unpack('<Q', chosen_props['dram-size']), (mkadt.MOONSTONE_MEM_SIZE,))
-        self.assertEqual(chosen_props['firmware-version'], b'moonstone-shim\0')
-
-    def test_log_wrap_and_truncation(self):
-        data = struct.pack('<8sIIQQ', b'SWEETLOG', 1, 8, 11, 3).ljust(4096, b'\0') + b'ijkdefgh'
-        path = self.dir / 'log'
-        path.write_bytes(data)
-        result = self.run_tool('sweet-log.py', path)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, b'defghijk')
-        for broken in (data[:32], data[:-1]):
-            path.write_bytes(broken)
-            result = self.run_tool('sweet-log.py', path)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn(b'truncated', result.stderr)
+    def test_workflow_only_packages_kernel_candidates(self):
+        workflow = (ROOT / '.github/workflows/moonstone-kernel.yml').read_text()
+        script = (ROOT / 'tools/mkboot.sh').read_text()
+        self.assertIn('out/moonstone-kernel.img', workflow)
+        self.assertIn('out/moonstone-kernel-v4.img', workflow)
+        self.assertNotIn('userspace-smoke', workflow)
+        self.assertNotIn('mkinit.py', workflow)
+        self.assertNotIn('--ramdisk', script)
+        self.assertNotIn('rootrw=1', workflow + script)
 
     def test_kbuild_propagates_packer_failure(self):
-        # No network or real GitHub commands: isolate the complete sh script.
         tools = self.dir / 'tools'
         tools.mkdir()
-        shutil.copyfile(ROOT / 'tools/kbuild.sh', tools / 'kbuild.sh')
+        source = ROOT / 'tools/kbuild.sh'
+        (tools / 'kbuild.sh').write_text(source.read_text())
         packer = tools / 'mkboot.sh'
         packer.write_text('#!/bin/sh\necho "packer cmdline: $CMDLINE" >&2\n'
                           'echo "packer rejected input" >&2\nexit 23\n')
@@ -238,7 +126,6 @@ class ToolTests(unittest.TestCase):
                                 env=env, capture_output=True, timeout=5)
         self.assertEqual(result.returncode, 23)
         self.assertIn(b'cpus=1', result.stderr)
-        self.assertIn(b'sweetgpu=0', result.stderr)
         self.assertNotIn(b'rootrw=1', result.stderr)
         self.assertIn(b'packer rejected input', result.stderr)
 

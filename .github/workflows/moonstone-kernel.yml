@@ -1,0 +1,83 @@
+name: moonstone-kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_run_id:
+        description: Reuse an xnu-kernel artifact from a previous workflow run
+        default: ""
+  push:
+    branches: [moonstone]
+    paths:
+      - ".github/workflows/moonstone-kernel.yml"
+      - ".github/workflows/xnu.yml"
+      - "shim/**"
+      - "tools/mkadt.py"
+      - "tools/mkboot.sh"
+      - "tools/mkbootimg_v3.py"
+      - "tools/mkpayload.py"
+      - "xnu/patches/**"
+
+concurrency:
+  group: moonstone-kernel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kernel:
+    if: ${{ inputs.kernel_run_id == '' }}
+    uses: ./.github/workflows/xnu.yml
+
+  package:
+    needs: kernel
+    if: ${{ always() && (needs.kernel.result == 'success' || (inputs.kernel_run_id != '' && needs.kernel.result == 'skipped')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download kernel from this run
+        if: ${{ inputs.kernel_run_id == '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: xnu-kernel
+          path: xnu/out
+
+      - name: Download kernel from an earlier run
+        if: ${{ inputs.kernel_run_id != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.kernel_run_id }}
+          REPO: ${{ github.repository }}
+        run: gh run download "$RUN_ID" -R "$REPO" -n xnu-kernel -D xnu/out
+
+      - name: Install shim build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            binutils-aarch64-linux-gnu clang cpio gcc-aarch64-linux-gnu
+
+      - name: Build kernel-only boot candidates
+        run: |
+          set -euo pipefail
+          chmod +x tools/*.sh shim/*.sh
+          CMDLINE="debug=0xc cpus=1 keepsyms=1 -noprogress wdt=-1"
+          CMDLINE="$CMDLINE" bash tools/mkboot.sh \
+            xnu/out/kernel.development.moonstone out/moonstone-kernel.img
+          {
+            echo "run: $GITHUB_RUN_ID"
+            echo "commit: $GITHUB_SHA"
+            sha256sum out/moonstone-kernel.img out/moonstone-kernel-v4.img
+          } | tee out/moonstone-kernel-SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moonstone-kernel
+          path: |
+            out/moonstone-kernel.img
+            out/moonstone-kernel-v4.img
+            out/moonstone-kernel-SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14

@@ -1,10 +1,10 @@
 #!/bin/bash
 # Build the Moonstone shim and wrap it in temporary-boot images.
-# Usage: build.sh [payload.bin [gpu-fw.blob]]
+# Usage: build.sh [payload.bin]
 # Moonstone's stock boot image is v3 (DTB and vendor ramdisk come from
 # vendor_boot); generate v3 and v4 candidates for host-side inspection.
 #
-# ios-topaz packing: data for the shim (later the XNU payload, here a
+# Packing: data for the shim (here the XNU payload, otherwise a
 # test blob) is appended to the kernel Image at the first 4K boundary
 # after _end, and the Image header's image_size grows to cover it.
 # The ramdisk is an uncompressed cpio with a marker file so the shim can
@@ -14,17 +14,17 @@ cd "$(dirname "$0")"
 CC=aarch64-linux-gnu-gcc
 OBJCOPY=aarch64-linux-gnu-objcopy
 CFLAGS="-O2 -ffreestanding -nostdlib -fno-pic -mgeneral-regs-only -mstrict-align -fno-stack-protector -Wall -Wextra"
-SRCS="start.S shim.c console.c mmu.c fdt.c loader.c gpu.c"
+SRCS="start.S shim.c console.c mmu.c fdt.c loader.c"
 mkdir -p out
 for f in $SRCS; do
 	$CC $CFLAGS -c $f -o out/${f%.*}.o
 done
 # The image runs wherever ABL puts it with no relocation pass: only the
 # header's image_size (start.o, linked at 0) may be an absolute address.
-abs=$(aarch64-linux-gnu-readelf -r out/shim.o out/console.o out/mmu.o out/fdt.o out/loader.o out/gpu.o | grep -c ABS64 || true)
+abs=$(aarch64-linux-gnu-readelf -r out/shim.o out/console.o out/mmu.o out/fdt.o out/loader.o | grep -c ABS64 || true)
 [ "$abs" = 0 ] || { echo "error: $abs absolute relocations in C objects" >&2; exit 1; }
 $CC $CFLAGS -static -T shim.ld -Wl,--build-id=none -Wl,--no-warn-rwx-segments -Wl,-N \
-	out/start.o out/shim.o out/console.o out/mmu.o out/fdt.o out/loader.o out/gpu.o -o out/shim.elf
+	out/start.o out/shim.o out/console.o out/mmu.o out/fdt.o out/loader.o -o out/shim.elf
 $OBJCOPY -O binary out/shim.elf out/Image
 # ABL copies the file; pad to image_size so .bss/stacks exist as zeroed bytes.
 size=$((16#$(aarch64-linux-gnu-nm out/shim.elf | awk '$3=="_end"{print $1}')))
@@ -35,11 +35,6 @@ truncate -s "$size" out/Image
 truncate -s $(( (size + 0xfff) & ~0xfff )) out/Image
 if [ -n "${1:-}" ]; then
 	cat "$1" >> out/Image
-	# optional second blob (GPU firmware for the xnu boot), again 4K aligned
-	if [ -n "${2:-}" ]; then
-		truncate -s $(( ($(stat -c%s out/Image) + 0xfff) & ~0xfff )) out/Image
-		cat "$2" >> out/Image
-	fi
 else
 	python3 -c 'import sys; sys.stdout.buffer.write(b"MOONEMBD".ljust(4096, b"\0"))' >> out/Image
 fi

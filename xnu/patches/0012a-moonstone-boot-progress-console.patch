@@ -1,0 +1,97 @@
+diff --git a/osfmk/arm64/moonstone_early.c b/osfmk/arm64/moonstone_early.c
+--- a/osfmk/arm64/moonstone_early.c
++++ b/osfmk/arm64/moonstone_early.c
+@@ -89,9 +89,9 @@ moonstone_early_mark(unsigned int stage, const char *label)
+ {
+-	if (early_disabled || stage > 20) {
++	if (early_disabled || stage > 30) {
+ 		return;
+ 	}
+ 	uint32_t color = 0xff00ff00u | ((stage & 7u) * 32u << 16);
+ 	for (unsigned int y = EARLY_HEIGHT - 32; y < EARLY_HEIGHT; y++) {
+-		for (unsigned int x = stage * 48; x < (stage + 1) * 48; x++) {
++		for (unsigned int x = (stage % 22u) * 48u; x < (stage % 22u + 1u) * 48u; x++) {
+ 			EARLY_FB[y * EARLY_STRIDE + x] = color;
+ 		}
+ 	}
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -544,9 +544,6 @@ arm_init(
+ 	kernel_startup_initialize_upto(STARTUP_SUB_KPRINTF);
+ 	kprintf("kprintf initialized\n");
+ 	moonstone_early_mark(20, "kprintf startup complete");
+-	if (serial_exists) {
+-		moonstone_early_disable();
+-	}
+ 
+ 	serialmode = 0;
+ 	if (PE_parse_boot_argn("serial", &serialmode, sizeof(serialmode))) {
+@@ -579,6 +576,7 @@ arm_init(
+ 	if (kern_feature_override(KF_SERIAL_OVRD)) {
+ 		serialmode = 0;
+ 	}
++	moonstone_early_mark(21, "serial boot arguments parsed");
+ 
+ 	/* Start serial if requested and a serial device was enumerated in serial_init(). */
+ 	if ((serialmode & SERIALMODE_OUTPUT) && serial_exists) {
+@@ -590,9 +588,11 @@ arm_init(
+ 		disableConsoleOutput = FALSE;     /* Allow printfs to happen */
+ 	}
+ 	PE_create_console();
++	moonstone_early_mark(22, "console created");
+ 
+ 	/* setup console output */
+ 	PE_init_printf(FALSE);
++	moonstone_early_mark(23, "printf console initialized");
+ 
+ #if __arm64__
+ #if DEBUG
+@@ -606,6 +606,7 @@ arm_init(
+ 	cpu_machine_idle_init(TRUE);
+ 
+ 	PE_init_platform(TRUE, &BootCpuData);
++	moonstone_early_mark(24, "late platform init returned");
+ 
+ #if __arm64__
+ 	extern bool cpu_config_correct;
+@@ -619,6 +621,7 @@ arm_init(
+ 	}
+ 
+ 	ml_map_cpu_pio();
++	moonstone_early_mark(25, "CPU PIO mapped");
+ 
+ #if APPLE_ARM64_ARCH_FAMILY
+ 	configure_late_apple_regs();
+@@ -629,6 +630,7 @@ arm_init(
+ #endif
+ 
+ 	cpu_timebase_init(TRUE);
++	moonstone_early_mark(26, "CPU timebase initialized");
+ 
+ #if KPERF
+ 	/* kptimer_curcpu_up() must be called after cpu_timebase_init */
+@@ -642,7 +647,9 @@ arm_init(
+ #endif /* KPERF */
+ 
+ 	PE_init_cpu();
++	moonstone_early_mark(27, "platform expert CPU init returned");
+ 	fiq_context_init(TRUE);
++	moonstone_early_mark(28, "FIQ context initialized");
+ 
+ 
+ #if HIBERNATION
+@@ -680,7 +681,8 @@ arm_init(
+ 	}
+ 
+ 	gDramBase = *dram_base;
+ 	gDramSize = *dram_size;
++	moonstone_early_mark(29, "DRAM properties read");
+ 
+ 	/*
+ 	 * Initialize the stack protector for all future calls
+@@ -697,3 +698,4 @@ arm_init(
+ 	__stack_chk_guard &= ~(0xFFULL << 8);
++	moonstone_early_mark(30, "entering machine_startup");
+ 	machine_startup(args);
+ }

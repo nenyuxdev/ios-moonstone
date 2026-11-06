@@ -4,13 +4,13 @@
 # Cancels runs still queued/running, dispatches xnu.yml for the pushed HEAD of the current branch,
 # takes the xnu-kernel artifact as soon as it exists (~6 min; GitHub can show the run "in progress"
 # for a while after the job ended), then builds out/boot-NAME-LABEL.img per LABEL with tools/mkboot.sh
-# (Moonstone first-boot profile; no root mount or GPU initialization.)
+# (Moonstone kernel-entry profile; no userspace, root mount, or GPU initialization.)
 set -eu
 cd "$(dirname "$0")/.."
 name=${1:?usage: kbuild.sh NAME [LABEL="boot-args"]...}; shift
 repo=$(git remote get-url origin | sed -E 's#^(git@github.com:|https://github.com/)##; s#\.git$##')
 branch=$(git rev-parse --abbrev-ref HEAD)
-base="debug=0xc cpus=1 keepsyms=1 -noprogress wdt=-1 sweetgpu=0 sweetfb_flip=0"
+base="debug=0xc cpus=1 keepsyms=1 -noprogress wdt=-1"
 head=$(git rev-parse HEAD)
 [ "$(git rev-parse "origin/$branch")" = "$head" ] || { echo "push $branch first" >&2; exit 1; }
 
@@ -46,6 +46,6 @@ gh run download -R "$repo" "$run" -n xnu-kernel -D "$k"
 for v in "$@"; do
   label=${v%%=*}; extra=${v#*=}
   # Keep the packer's failure status: a pipeline ending in tail would hide it in sh.
-  packed=$(CMDLINE="$base $extra" tools/mkboot.sh "$k/kernel.development.sweet" "out/moonstone-$name-$label.img")
+  packed=$(CMDLINE="$base $extra" tools/mkboot.sh "$k/kernel.development.moonstone" "out/moonstone-$name-$label.img")
   printf '%s\n' "$packed" | tail -2
 done

@@ -1,0 +1,7 @@
+diff --git a/makedefs/MakeInc.def b/makedefs/MakeInc.def
+index 9a748ea..27e8c8a 100644
+--- a/makedefs/MakeInc.def
++++ b/makedefs/MakeInc.def
+@@ -64,1 +64,1 @@
+-MACHINE_FLAGS_ARM64_MOONSTONE = -DARM64_BOARD_CONFIG_MOONSTONE                -march=armv8.2-a+crypto
++MACHINE_FLAGS_ARM64_MOONSTONE = -DARM64_BOARD_CONFIG_MOONSTONE                -mcpu=cortex-a55+crypto

@@ -316,12 +316,12 @@ static void show_boot(uint64_t dtb)
 	if (dtb)
 		con_hex2(" size", "", __builtin_bswap32(rd32(dtb + 4)), 0, 0);
 
-	/* ios-topaz packing: the payload rides behind the shim in the Image */
+	/* The payload rides behind the shim in the Image. */
 	stage = "embed";
 	uintptr_t emb = ((uintptr_t)_end + 0xfff) & ~0xfffUL;
 	con_hex2("EMBED", "at=", emb, "ok=", match(emb, EMBED_MAGIC));
 
-	/* Does ABL pass our own boot ramdisk (topaz ABL drops it)? */
+	/* Check whether ABL passes our boot ramdisk. */
 	stage = "initrd";
 	uint64_t rd_lo, rd_hi;
 	if (!fdt_chosen_u64(dtb, "linux,initrd-start", &rd_lo) ||
@@ -601,7 +601,7 @@ static void test_mmu(void)
  * MHz = 19.2 * lval when src != 0), PERF_STATE (vote) at +0x320 (per core
  * +4*n when DCVS_CTRL bit 0), current L-val in DOMAIN_STATE +0x20. Nothing
  * in xnu scales the CPUs yet, so vote the top non-boost entry once, as
- * topaz 0094 does; the EPSS/LMh hardware still throttles on its own.
+ * The display stack handles this path; the EPSS/LMh hardware still throttles on its own.
  */
 static uint32_t mmio_rd(uintptr_t a)
 {
@@ -682,7 +682,7 @@ static void cpufreq_max(void)
 	con_clear(RED);
 }
 
-/* First 4K boundary after the SWEETXNU payload (header: mkpayload.py). */
+/* First 4K boundary after the MOONXNU1 payload (header: mkpayload.py). */
 static uintptr_t payload_end(uintptr_t p)
 {
 	uint32_t nsegs = *(volatile uint32_t *)(p + 0xc);
@@ -705,7 +705,7 @@ void shim_main(uint64_t dtb)
 	con_skip();
 
 	uintptr_t emb = ((uintptr_t)_end + 0xfff) & ~0xfffUL;
-	if (match(emb, "SWEETXNU")) {
+	if (match(emb, "MOONXNU1")) {
 		if (!cpu_ready) {
 			con_str("ABORT", "EL1/MMU/D-cache/16K precondition failed");
 			for (;;)

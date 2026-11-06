@@ -67,7 +67,7 @@ static void zero64(uintptr_t dst, uint64_t n)
 
 static int magic_ok(const char *m)
 {
-	static const char want[] = "SWEETXNU";
+	static const char want[] = "MOONXNU1";
 	for (int i = 0; i < 8; i++)
 		if (m[i] != want[i])
 			return 0;
@@ -85,7 +85,7 @@ const char *loader_boot(uintptr_t dtb)
 	uintptr_t emb = ((uintptr_t)_end + 0xfff) & ~0xfffUL;
 
 	/*
-	 * topaz: the ABL only passes the vendor_boot ramdisk for a v4 boot
+	 * The ABL only passes the vendor_boot ramdisk for a v4 boot
 	 * image, so the payload rides behind the shim in the kernel Image.
 	 * Its exact size is unknown here; the kernel memory check below only
 	 * needs an upper bound, and the Image is far below phys_base.
@@ -102,7 +102,7 @@ const char *loader_boot(uintptr_t dtb)
 	}
 
 	/*
-	 * Boot image v4 (topaz ABL ignores v1/v2): ABL concatenates the
+	 * Boot image v4: ABL concatenates the
 	 * vendor_boot ramdisk(s) and ours, so the payload is somewhere inside
 	 * the initrd and not necessarily 8-byte aligned. Find it and move it
 	 * down to an aligned address; the vendor ramdisk below it is unused.
@@ -114,7 +114,7 @@ const char *loader_boot(uintptr_t dtb)
 			break;
 		}
 	if (!hit)
-		return "no SWEETXNU payload";
+		return "no MOONXNU1 payload";
 	if (hit != rd_start) {
 		uintptr_t dst = (rd_start + 7) & ~7UL;
 		volatile uint8_t *d = (volatile uint8_t *)dst;

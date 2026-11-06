@@ -21,8 +21,8 @@ import concurrent.futures as cf, os, re, shlex, subprocess, sys
 from collections import Counter
 
 # where the GitHub runner checked out darwin-xnu-build: /Users/runner/work/REPO/REPO/dxb
-# (detected from the log in main(); this default is for a fork named ios-sunstone)
-CI_DXB = '/Users/runner/work/ios-sunstone/ios-sunstone/dxb'
+# (detected from the log in main(); this default is for a fork named ios-moonstone)
+CI_DXB = '/Users/runner/work/ios-moonstone/ios-moonstone/dxb'
 CI_SDK_PLATFORM = re.compile(r'/Applications/Xcode[^ ]*?\.sdk/+System/Library/Frameworks/Kernel\.framework/Versions/A/PrivateHeaders/platform')
 CLANG = os.path.expanduser('~/swift/usr/bin/clang')
 DROP = {'-c', '-g', '-MD', '-MMD'}

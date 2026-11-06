@@ -4,25 +4,20 @@
   python3 tests/check-project.py [--source-root ../work/xnu]
 
 With --source-root, replay all active patches on that checkout's original XNU
-commit and compare every affected file. The three upstream providers normally
-staged by CI's shell hooks must already exist there. Their patched files are
-reversed first, so this checks patch consistency without downloading anything.
-It does not replace fetching the pinned providers, a kernel build, or device tests.
+commit and compare every affected file. This checks patch consistency without
+downloading anything. It does not replace fetching the pinned source, a kernel
+build, or device tests.
 """
 import argparse
 import io
 from pathlib import Path
 import plistlib
 import re
-import shutil
 import subprocess
 import tarfile
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-PROVIDERS = ('bsd/pthread/sweet_libpthread', 'libkern/crypto/sweet_bearssl', 'bsd/sweet_hfs')
-
-
 def git(*args, cwd=ROOT):
     return subprocess.check_output(['git', *args], cwd=cwd)
 
@@ -66,8 +61,8 @@ def check_patches(source):
     source = source.resolve()
     base = git('rev-list', '--max-parents=0', 'HEAD', cwd=source).decode().strip()
     tracked = set(git('ls-tree', '-r', '--name-only', base, cwd=source).decode().splitlines())
-    provider_paths = sorted(p for p in paths if any(p.startswith(d + '/') for d in PROVIDERS))
-    with tempfile.TemporaryDirectory(prefix='sunstone-series-') as directory:
+    provider_paths = []
+    with tempfile.TemporaryDirectory(prefix='moonstone-series-') as directory:
         stage = Path(directory)
         archive = git('archive', base, '--', *sorted(paths & tracked), cwd=source)
         with tarfile.open(fileobj=io.BytesIO(archive)) as tree:
@@ -76,13 +71,9 @@ def check_patches(source):
                 tree.extractall(stage, filter='data')
             else:
                 tree.extractall(stage)
-        for provider in PROVIDERS:
-            if not (source / provider).is_dir():
-                raise ValueError(f'missing staged provider: {source / provider}')
-            shutil.copytree(source / provider, stage / provider)
-        # The local providers already contain project patches. Recover hook output.
-        for patch in reversed(patches):
-            git('apply', '-R', *['--include=' + p for p in provider_paths], str(patch), cwd=stage)
+        if provider_paths:
+            for patch in reversed(patches):
+                git('apply', '-R', *['--include=' + p for p in provider_paths], str(patch), cwd=stage)
         for patch in patches:
             git('apply', str(patch), cwd=stage)
         differences = []
