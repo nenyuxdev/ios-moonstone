@@ -11,17 +11,22 @@ OUT=${2:-$ROOT/out/moonstone-xnu-boot.img}
 OUT_V4="${OUT%.img}-v4.img"
 mkdir -p "$ROOT/out"
 CMDLINE=${CMDLINE:-'debug=0xc cpus=1 keepsyms=1 -noprogress wdt=-1 sweetgpu=0 sweetfb_flip=0'}
+payload_args=()
+if [ -n "${RAMDISK:-}" ]; then
+	payload_args+=(--ramdisk "$RAMDISK")
+fi
 
 if [ "${3:-}" = --qemu ]; then
 	python3 "$ROOT/tools/mkadt.py" "$ROOT/out/qemu.adt" --qemu
 	python3 "$ROOT/tools/mkpayload.py" "$KERNEL" "$ROOT/out/qemu.adt" "$ROOT/out/qemu-payload.bin" \
-		--cmdline "${CMDLINE/rd=ufsroot0/}"
+		--cmdline "${CMDLINE/rd=ufsroot0/}" "${payload_args[@]}"
 	echo "QEMU payload: $ROOT/out/qemu-payload.bin"
 	exit 0
 fi
 
 python3 "$ROOT/tools/mkadt.py" "$ROOT/out/moonstone.adt"
-python3 "$ROOT/tools/mkpayload.py" "$KERNEL" "$ROOT/out/moonstone.adt" "$ROOT/out/payload.bin" --cmdline "$CMDLINE"
+python3 "$ROOT/tools/mkpayload.py" "$KERNEL" "$ROOT/out/moonstone.adt" "$ROOT/out/payload.bin" \
+	--cmdline "$CMDLINE" "${payload_args[@]}"
 "$ROOT/shim/build.sh" "$ROOT/out/payload.bin" >/dev/null
 cp "$ROOT/shim/out/shim-boot.img" "$OUT"
 cp "$ROOT/shim/out/shim-boot-v4.img" "$OUT_V4"

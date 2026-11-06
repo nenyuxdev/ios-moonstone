@@ -15,7 +15,9 @@ on:
       - "tools/mkadt.py"
       - "tools/mkboot.sh"
       - "tools/mkbootimg_v3.py"
+      - "tools/mkinit.py"
       - "tools/mkpayload.py"
+      - "tools/sweet-init.S"
       - "xnu/patches/**"
 
 concurrency:
@@ -57,19 +59,25 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            binutils-aarch64-linux-gnu cpio gcc-aarch64-linux-gnu
+            binutils-aarch64-linux-gnu clang cpio gcc-aarch64-linux-gnu
 
-      - name: Build temporary-boot candidates
+      - name: Build boot and userspace-smoke candidates
         run: |
           set -euo pipefail
           chmod +x tools/*.sh shim/*.sh
           CMDLINE="debug=0xc cpus=1 keepsyms=1 -noprogress wdt=-1 sweetgpu=0 sweetfb_flip=0"
           CMDLINE="$CMDLINE" bash tools/mkboot.sh \
             xnu/out/kernel.development.sweet out/moonstone-first-boot.img
+          clang -target arm64-apple-ios16.0 -c tools/sweet-init.S -o out/sweet-init.o
+          python3 tools/mkinit.py out/sweet-init.o out/sweet-init.macho
+          RAMDISK=xnu/out/sweet-init.macho CMDLINE="$CMDLINE rd=md0" \
+            bash tools/mkboot.sh \
+            xnu/out/kernel.development.sweet out/moonstone-userspace-smoke.img
           {
             echo "run: $GITHUB_RUN_ID"
             echo "commit: $GITHUB_SHA"
-            sha256sum out/moonstone-first-boot.img out/moonstone-first-boot-v4.img
+            sha256sum out/moonstone-first-boot.img out/moonstone-first-boot-v4.img \
+              out/moonstone-userspace-smoke.img out/moonstone-userspace-smoke-v4.img
           } | tee out/moonstone-first-boot-SHA256SUMS.txt
 
       - uses: actions/upload-artifact@v4
@@ -78,6 +86,8 @@ jobs:
           path: |
             out/moonstone-first-boot.img
             out/moonstone-first-boot-v4.img
+            out/moonstone-userspace-smoke.img
+            out/moonstone-userspace-smoke-v4.img
             out/moonstone-first-boot-SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
