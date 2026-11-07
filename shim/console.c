@@ -96,12 +96,30 @@ void con_hex2(const char *label, const char *a, uint32_t va, const char *b, uint
 	row++;
 }
 
+/* Busy-wait using the ARM architectural counter; no OS/runtime is available. */
+static uint64_t counter_ticks(void)
+{
+	uint64_t ticks;
+	__asm__ volatile("isb; mrs %0, cntpct_el0" : "=r"(ticks));
+	return ticks;
+}
+
+void con_hold_ms(unsigned ms)
+{
+	uint64_t freq;
+	__asm__ volatile("mrs %0, cntfrq_el0" : "=r"(freq));
+	uint64_t start = counter_ticks();
+	uint64_t ticks = (freq / 1000) * ms;
+
+	/* Unsigned subtraction keeps the elapsed-time check valid across wraparound. */
+	while (counter_ticks() - start < ticks)
+		;
+}
+
 /*
  * Page break for long reports: if fewer than n rows are left, keep the full
  * page on screen for hold_ms (time for a photo), then clear to bg.
  */
-extern void con_hold_ms(unsigned ms);
-
 void con_need(int n, uint32_t bg, unsigned hold_ms)
 {
 	if (MARGIN + (row + n) * CH_H <= FB_H)
